@@ -1,0 +1,8 @@
+root,C:\Users\yq904481\research\repos\EnsemblePruning
+boundary_conditions,data\boundary_conditions
+ephemeris,data\ephemeris\ephemeris.hdf5
+STEREO_HI_data,data\STEREO_HI
+SSW_data,data\SSW_data\SSW_cme_classifications.hdf5
+HUXt_data,data\HUXt
+out_data,data\out_data
+figures,figures
