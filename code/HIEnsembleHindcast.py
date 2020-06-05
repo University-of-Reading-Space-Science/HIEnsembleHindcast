@@ -1,12 +1,15 @@
-import numpy as np
-import astropy.units as u
 from astropy.time import Time, TimeDelta
+import astropy.units as u
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import pandas as pd
+import os 
+import scipy.interpolate as interp
+from stereo_spice.coordinates import StereoSpice
 import sunpy.coordinates.sun as sn
 import tables
-import pandas as pd
-from stereo_spice.coordinates import StereoSpice
-import scipy.interpolate as interp
-import os 
+import HI_analysis as hip
 import HUXt as H
 import glob
 
@@ -214,7 +217,7 @@ def get_ssw_profile(ssw_event, craft, img, pa_center, pa_wid=1.0):
     ssw_out.close()
     return profile
 
-def plot_huxt_and_hi_schematic(model, time, hi1a_map, hi1b_map, ssw_sta, ssw_stb, sta, stb):
+def plot_huxt_and_hi_schematic(model, time, hi1a_map, hi1b_map, ssw_sta, ssw_stb, sta, stb, hxt_sta, hxt_stb):
     """
     Make a contour plot on polar axis of the solar wind solution at a specific time.
 
@@ -316,7 +319,7 @@ def plot_huxt_and_hi_schematic(model, time, hi1a_map, hi1b_map, ssw_sta, ssw_stb
     ax.add_patch(stb_patch)
 
     # Add on the flanks.
-    id_t = np.argmin(np.abs(model.time_out - t_plot))
+    id_t = np.argmin(np.abs(model.time_out - time))
     ax.plot([lsa.value, hxt_sta.loc[id_t,'lon']], [rsa.value, hxt_sta.loc[id_t,'r']], 'r-', linewidth=2)
     ax.plot(hxt_sta.loc[id_t,'lon'], hxt_sta.loc[id_t,'r'], 'rX', markersize=15, zorder=4)
 
