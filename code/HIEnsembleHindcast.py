@@ -1,25 +1,38 @@
-from astropy.time import Time, TimeDelta
+# Standard library
+from astropy.time import Time
 import astropy.units as u
+import glob
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import moviepy.editor as mpy
 from moviepy.video.io.bindings import mplfig_to_npimage
+import os
 import pandas as pd
-import os 
-import scipy.interpolate as interp
-from stereo_spice.coordinates import StereoSpice
 import sunpy.coordinates.sun as sn
 import tables
+
+# Our own library for using spice with STEREO (https://github.com/LukeBarnard/stereo_spice)
+from stereo_spice.coordinates import StereoSpice
+
+# Local packages
 import HI_analysis as hip
 import HUXt as H
-import glob
 
 spice = StereoSpice()
 
+
 def load_swpc_cme_forecasts(event):
     """
-    Load in dictionary of SWPC CME forecast parameters for each solar stormwatch event.
+    Load in a dictionary of SWPC CME forecast parameters for each solar stormwatch event.
+    Parameters
+    ----------
+    event: A string key to identify which event to load. Should be ssw_007, ssw_008, ssw_009, or ssw_012.
+
+    Returns
+    -------
+    cme: A dictionary containing the parameters of each event.
+
     """
     
     event_list = ['ssw_007', 'ssw_008', 'ssw_009', 'ssw_012']
@@ -29,27 +42,40 @@ def load_swpc_cme_forecasts(event):
     kms = u.km / u.s
     
     if event == 'ssw_007':
-        cme = {'t_obs':Time('2012-08-31T22:46:00'), 'r_obs':21.5*u.solRad, 'width':66*u.deg, 'lon':-30*u.deg, 'lat':0*u.deg,
-                'v':1010*kms, 't_arr_pred':Time('2012-09-03T17:00:00'), 't_arr_obs':Time('2012-09-03T11:23:00')}
+        cme = {'t_obs': Time('2012-08-31T22:46:00'), 'r_obs': 21.5*u.solRad, 'width': 66*u.deg, 'lon': -30*u.deg,
+               'lat': 0*u.deg, 'v': 1010*kms, 't_arr_pred': Time('2012-09-03T17:00:00'),
+               't_arr_obs': Time('2012-09-03T11:23:00')}
     
     elif event == 'ssw_008':
-        cme = {'t_obs':Time('2012-09-28T03:49:00'), 'r_obs':21.5*u.solRad, 'width':110*u.deg, 'lon':20*u.deg, 'lat':4*u.deg,
-                'v':872*kms, 't_arr_pred':Time('2012-09-30T15:00:00'), 't_arr_obs':Time('2012-09-30T22:13:00')}
+        cme = {'t_obs': Time('2012-09-28T03:49:00'), 'r_obs': 21.5*u.solRad, 'width': 110*u.deg, 'lon': 20*u.deg,
+               'lat': 4*u.deg, 'v': 872*kms, 't_arr_pred': Time('2012-09-30T15:00:00'),
+               't_arr_obs': Time('2012-09-30T22:13:00')}
     
     elif event == 'ssw_009':
-        cme = {'t_obs':Time('2012-10-05T08:47:00'), 'r_obs':21.5*u.solRad, 'width':84*u.deg, 'lon':9*u.deg, 'lat':-24*u.deg,
-                'v':698*kms, 't_arr_pred':Time('2012-10-08T15:00:00'), 't_arr_obs':Time('2012-10-08T04:31:00')}
+        cme = {'t_obs': Time('2012-10-05T08:47:00'), 'r_obs': 21.5*u.solRad, 'width': 84*u.deg, 'lon': 9*u.deg,
+               'lat': -24*u.deg, 'v': 698*kms, 't_arr_pred': Time('2012-10-08T15:00:00'),
+               't_arr_obs': Time('2012-10-08T04:31:00')}
     
     elif event == 'ssw_012':
-        cme = {'t_obs':Time('2012-11-20T17:40:00'), 'r_obs':21.5*u.solRad, 'width':94*u.deg, 'lon':22*u.deg, 'lat':20*u.deg,
-                'v':664*kms, 't_arr_pred':Time('2012-11-23T17:00:00'), 't_arr_obs':Time('2012-11-23T21:12:00')}
+        cme = {'t_obs': Time('2012-11-20T17:40:00'), 'r_obs': 21.5*u.solRad, 'width': 94*u.deg, 'lon': 22*u.deg,
+               'lat': 20*u.deg, 'v': 664*kms, 't_arr_pred': Time('2012-11-23T17:00:00'),
+               't_arr_obs': Time('2012-11-23T21:12:00')}
         
     return cme
 
 
 def run_huxt_ensemble(ssw_event, n_ensemble=100):
     """
-    Produce determinisitc and ensemble of HUXt runs for a specified solar stormwatch event
+    Produce a determinisitc and ensemble of HUXt runs for a specified solar stormwatch event. For the deterministic run,
+    both the full model solution, and the CME profile are saved in data>HUXt. For the ensemble, only the CME profiles
+    are saved in data>HUXt, as this reduces the storage requirements significantly.
+    Parameters
+    ----------
+    ssw_event: String identifying which event to run the ensemble for. Should be ssw_007, ssw_008, ssw_009, or ssw_012.
+    n_ensemble: Number of ensemble members to include, defaults to 200.
+    Returns
+    -------
+    A set of files in data>HUXt for the specified event.
     """
     
     # Add a check n_ensemble so that is integer and sensible
@@ -68,9 +94,7 @@ def run_huxt_ensemble(ssw_event, n_ensemble=100):
     vr_in, br_in = H.Hin.get_MAS_long_profile(cr_num, ert.lat.to(u.deg))
     model = H.HUXt(v_boundary=vr_in, cr_num=cr_num, cr_lon_init=ert.lon_c, latitude=ert.lat.to(u.deg),
                    br_boundary=br_in, simtime=5*u.day, dt_scale=4)
-        
-    #model = H.HUXt(cr_num=cr_num, cr_lon_init=ert.lon_c, simtime=5.0*u.day, dt_scale=4.0)
-    
+
     # Deterministic run first:
     # Get time of CME at inner boundary, assuming fixed speed.
     r_ib = model.r.min()
@@ -96,10 +120,10 @@ def run_huxt_ensemble(ssw_event, n_ensemble=100):
 
     for i in range(n_ensemble):
 
-        lon = swpc_cme['lon'] + np.random.uniform(-1,1,1)[0] * lon_spread
-        lat = swpc_cme['lat'] + np.random.uniform(-1,1,1)[0] * lat_spread
-        width = swpc_cme['width'] + np.random.uniform(-1,1,1)[0] * width_spread
-        v = swpc_cme['v'] + np.random.uniform(-1,1,1)[0] * v_spread
+        lon = swpc_cme['lon'] + np.random.uniform(-1, 1, 1)[0] * lon_spread
+        lat = swpc_cme['lat'] + np.random.uniform(-1, 1, 1)[0] * lat_spread
+        width = swpc_cme['width'] + np.random.uniform(-1, 1, 1)[0] * width_spread
+        v = swpc_cme['v'] + np.random.uniform(-1, 1, 1)[0] * v_spread
         thickness = 5.0*u.solRad + np.random.uniform(-1, 1, 1)[0] * thickness_spread
 
         # Workout time of CME at inner boundary, assuming fixed speed.
@@ -114,11 +138,20 @@ def run_huxt_ensemble(ssw_event, n_ensemble=100):
     
     return
 
+
 def track_cme_flanks(ssw_event, fast=True):
     """
     Compute the CME flank elongation for each ensemble member and save to file.
+    Parameters
+    ----------
+    ssw_event: String giving the name of the SWPC event to analyse
+    fast: Boolean, default True, of whether to use a faster version of the flank tracking algorithm. Saves a
+          significant amount of time, and works for the events studied here. Might not generalise well to other events.
+    Returns
+    -------
+    Files in data>out_data, with name format ssw_event_ensemble_sta.csv and ssw_event_ensemble_stb.csv
+
     """
-    
     project_dirs = H._setup_dirs_()
     path = os.path.join(project_dirs['HUXt_data'], "CME_*{}*_ensemble_*.hdf5".format(ssw_event))
     ensemble_files = glob.glob(path)
@@ -132,7 +165,7 @@ def track_cme_flanks(ssw_event, fast=True):
         for i in range(n_ens):
             keys.append("{}_{:02d}".format(param, i))
 
-    keys = {k:0 for k in keys}
+    keys = {k: 0 for k in keys}
 
     # Loop over the ensemble files, pull out the elongation profiles and compute arrival time.
     for i, file in enumerate(ensemble_files):
@@ -167,11 +200,20 @@ def track_cme_flanks(ssw_event, fast=True):
     ensemble_stb.to_csv(os.path.join(out_path, out_name))
     return
 
+
 def compute_ssw_profile(ssw_event):
     """
-    # Compute the Solar Stormwatch time-elongation profile along the position angle corresponding to the model
+    Compute the Solar Stormwatch time-elongation profile along the position angle corresponding to the model solution.
+
+    Parameters
+    ----------
+    ssw_event: String giving the name of the SWPC event to analyse
+
+    Returns
+    -------
+    Files in data>out_data which have the name format ssw_event_sta.csv and ssw_event_stb.csv.
+
     """
-    
     project_dirs = H._setup_dirs_()
     path = os.path.join(project_dirs['HUXt_data'], "CME_*{}*_ensemble_*.hdf5".format(ssw_event))
     ensemble_files = glob.glob(path)
@@ -185,8 +227,6 @@ def compute_ssw_profile(ssw_event):
 
     # Compute ensemble average of average PA of the HUXt profiles in the HI FOV.
     # PA variability and trend is small enough to assume constant.
-    sta_pa_avg = 0.0
-    stb_pa_avg = 0.0
     el_keys = ["el_{:02d}".format(i) for i in range(n_ens)]
     pa_keys = ["pa_{:02d}".format(i) for i in range(n_ens)]
 
@@ -222,16 +262,25 @@ def compute_ssw_profile(ssw_event):
     
 def compute_ensemble_metrics(ssw_event):
     """
-    Compute the CME arrival at Earth for each HUXt ensemble member.
-    """
+    For each ensemble member, compute the arrival at Earth, and the RMSE and weighting based on comparison with the
+    solar stormwatch profile of this event. Save these metrics to file.
 
+    Parameters
+    ----------
+    ssw_event: String giving the name of the SWPC event to analyse
+
+    Returns
+    -------
+    A file in data>out_data, with name format ssw_event_ensemble_metrics.csv
+
+    """
     # List the ensemble files, and set up space for results of comparisons
     project_dirs = H._setup_dirs_()
     path = os.path.join(project_dirs['HUXt_data'], "CME_*{}*_ensemble_*.hdf5".format(ssw_event))
     ensemble_files = glob.glob(path)
     n_ens = len(ensemble_files)
-    metrics = pd.DataFrame({'arrival_time':np.zeros(n_ens), 'transit_time':np.zeros(n_ens),
-                            'rmse_a':np.zeros(n_ens), 'rmse_b':np.zeros(n_ens), 'hit':np.zeros(n_ens)})
+    metrics = pd.DataFrame({'arrival_time': np.zeros(n_ens), 'transit_time': np.zeros(n_ens),
+                            'rmse_a': np.zeros(n_ens), 'rmse_b': np.zeros(n_ens), 'hit': np.zeros(n_ens)})
     
     # Load in the HUXt ensemble flanks
     sta_flanks = ssw_event + '_ensemble_sta.csv'
@@ -248,9 +297,9 @@ def compute_ensemble_metrics(ssw_event):
     # Exclude from the analysis.
     if ssw_event == 'ssw_012':
         fig, ax = plt.subplots()
-        ax.plot(ssw_stb['time'], ssw_stb['el'],'ko', label='All SSW HI1B')
+        ax.plot(ssw_stb['time'], ssw_stb['el'], 'ko', label='All SSW HI1B')
         ssw_stb = ssw_stb.loc[2:, :]
-        ax.plot(ssw_stb['time'], ssw_stb['el'],'r.', label='Outlier excluded data')
+        ax.plot(ssw_stb['time'], ssw_stb['el'], 'r.', label='Outlier excluded data')
         path = os.path.join(project_dirs['HUXt_figures'], "ssw_012_outlier_exclude_check.png")
         fig.savefig(path)
         plt.close(fig)
@@ -282,11 +331,11 @@ def compute_ensemble_metrics(ssw_event):
     
     for i, ek in enumerate(el_keys):
 
-        hxt_sta = pd.DataFrame({'time': ensemble_sta['time'], 'el':ensemble_sta[ek]})
+        hxt_sta = pd.DataFrame({'time': ensemble_sta['time'], 'el': ensemble_sta[ek]})
         rms, n_rms_samp = compute_rmse(hxt_sta, ssw_sta)
         metrics.loc[i, 'rmse_a'] = rms
 
-        hxt_stb = pd.DataFrame({'time': ensemble_stb['time'], 'el':ensemble_stb[ek]})
+        hxt_stb = pd.DataFrame({'time': ensemble_stb['time'], 'el': ensemble_stb[ek]})
         rms, n_rms_samp = compute_rmse(hxt_stb, ssw_stb)
         metrics.loc[i, 'rmse_b'] = rms
 
@@ -305,13 +354,23 @@ def compute_ensemble_metrics(ssw_event):
     metrics.to_csv(os.path.join(out_path, out_name))
     return
 
+
 def huxt_t_e_profile(cme):
     """
-    Compute the time elonagation profile of the flank of a ConeCME in HUXt, from either the STEREO-A or STEREO-B persepctive.
+    Compute the time elongation profile of the flank of a ConeCME in HUXt, from both the STEREO-A or STEREO-B
+    persepctive. Uses stereo_spice in a loop, which can be quite slow.
+    Parameters
+    ----------
+    cme: A ConeCME object from a completed HUXt run (i.e the ConeCME.coords dictionary has been populated).
+
+    Returns
+    -------
+    sta_profile: Pandas dataframe giving the coordinates of the ConeCME flank from STA's perspective, including the
+                 time, elongation, position angle, and HEEQ radius and longitude.
+    stb_profile: Pandas dataframe giving the coordinates of the ConeCME flank from STB's perspective, including the
+                 time, elongation, position angle, and HEEQ radius and longitude.
     """
     times = Time([coord['time'] for i, coord in cme.coords.items()])
-    sta = H.Observer('STA', times)
-    stb = H.Observer('STB', times)
 
     sta_profile = pd.DataFrame(index=np.arange(times.size), columns=['time', 'el', 'r', 'lon', 'pa'])
     stb_profile = pd.DataFrame(index=np.arange(times.size), columns=['time', 'el', 'r', 'lon', 'pa'])
@@ -321,7 +380,7 @@ def huxt_t_e_profile(cme):
 
     for i, coord in cme.coords.items():
 
-        if len(coord['r'])==0:
+        if len(coord['r']) == 0:
             continue
 
         lon_cme = coord['lon']
@@ -387,14 +446,26 @@ def huxt_t_e_profile(cme):
             
     return sta_profile, stb_profile
 
+
 def huxt_t_e_profile_fast(cme):
     """
-    A faster, but riskier, version of computing the CME flank. Calculates the elongation to find the flank, and then uses
-    spice to compute the position angle. Saves using spice to loop around the cme front, which is slow. This might fail for
-    some geometries where the elongation is technically larger along PA angles not visible to either STA or STB. However, this agrees with
-    huxt_t_e_profile for the deterministic runs, so I think is safe for the events in this study.
+    Compute the time elongation profile of the flank of a ConeCME in HUXt, from both the STEREO-A or STEREO-B
+    perspective. A faster, but less reliable, version of computing the CME flank with huxt_t_e_profile. Rather than
+    using stereo_spice for the full calculation, which is a bit slow, this function does it's own calculation of the
+    flank elongation, and then uses stereo_spice to compute the flank position angle. This might fail for some
+    geometries where the elongation is technically larger along PA angles not visible to either STA or STB. However,
+    this agrees with huxt_t_e_profile for the deterministic runs, so I think is safe for the events in this study.
+
+    Parameters
+    ----------
+    cme: A ConeCME object from a completed HUXt run (i.e the ConeCME.coords dictionary has been populated).
+    Returns
+    -------
+    sta_profile: Pandas dataframe giving the coordinates of the ConeCME flank from STA's perspective, including the
+                time, elongation, position angle, and HEEQ radius and longitude.
+    stb_profile: Pandas dataframe giving the coordinates of the ConeCME flank from STB's perspective, including the
+                time, elongation, position angle, and HEEQ radius and longitude.
     """
-    
     times = Time([coord['time'] for i, coord in cme.coords.items()])
     sta = H.Observer('STA', times)
     stb = H.Observer('STB', times)
@@ -407,7 +478,7 @@ def huxt_t_e_profile_fast(cme):
 
     for i, coord in cme.coords.items():
 
-        if len(coord['r'])==0:
+        if len(coord['r']) == 0:
             continue
 
         r_sta = sta.r[i]
@@ -419,7 +490,6 @@ def huxt_t_e_profile_fast(cme):
         x_stb = stb.r[i] * np.cos(stb.lat[i]) * np.cos(stb.lon[i])
         y_stb = stb.r[i] * np.cos(stb.lat[i]) * np.sin(stb.lon[i])
         z_stb = stb.r[i] * np.sin(stb.lat[i])
-
 
         lon_cme = coord['lon']
         lat_cme = coord['lat']
@@ -436,18 +506,18 @@ def huxt_t_e_profile_fast(cme):
         z_cme_s = z_cme - z_sta
         s = np.sqrt(x_cme_s**2 + y_cme_s**2 + z_cme_s**2)
 
-        numer = (r_sta**2 + s**2 -r_cme**2).value
+        numer = (r_sta**2 + s**2 - r_cme**2).value
         denom = (2.0 * r_sta * s).value
-        e_sta  = np.arccos(numer / denom )
+        e_sta = np.arccos(numer / denom)
 
         x_cme_s = x_cme - x_stb
         y_cme_s = y_cme - y_stb
         z_cme_s = z_cme - z_stb
         s = np.sqrt(x_cme_s**2 + y_cme_s**2 + z_cme_s**2)
 
-        numer = (r_stb**2 + s**2 -r_cme**2).value
+        numer = (r_stb**2 + s**2 - r_cme**2).value
         denom = (2.0 * r_stb * s).value
-        e_stb  = np.arccos(numer / denom )
+        e_stb = np.arccos(numer / denom)
 
         # Find the flank coordinate
         id_sta_flank = np.argmax(e_sta)
@@ -505,21 +575,46 @@ def huxt_t_e_profile_fast(cme):
     stb_profile[keys] = stb_profile[keys].astype(np.float64)
 
     return sta_profile, stb_profile
-            
+
+
 def compute_rmse(hxt, ssw):
     """
-    Function to compute root mean square error between the huxt and ssw time elongation profiles of the CME flank.
+    Compute the root mean square error between the HUXt and ssw time elongation profiles of the CME flank. The HUXt
+    profiles is interpolated onto the solar stormwatch profile to compute the comparison.
+    Parameters
+    ----------
+    hxt: Pandas dataframe containing the ConeCME profile from HUXt
+    ssw: Pandas dataframe containing the observed CME profile from either STEREO-A or STEREO-B
+    Returns
+    -------
+    rms: The root mean square error between these profiles, ignoring NaNs
+    n_rms_samp: The number of valid points in the profile comparisons.
     """
     elon_interp = np.interp(ssw['time'].values, hxt['time'].values, hxt['el'].values, left=np.NaN, right=np.NaN)
-    hxt_interp = pd.DataFrame({'time':ssw['time'].values, 'el':elon_interp})
+    hxt_interp = pd.DataFrame({'time': ssw['time'].values, 'el': elon_interp})
     de = (hxt_interp['el'] - ssw['el'])**2
     n_rms_samp = np.sum(np.isfinite(de))
     rms = np.sqrt(de.mean(skipna=True))
     return rms, n_rms_samp
 
+
 def get_ssw_profile(ssw_event, craft, img, pa_center, pa_wid=1.0):
     """
-    Load the Solar Stormwatch profile of the CME for either the HI1A or HI1B data. 
+    Compute the Solar Stormwatch profile of the CME along a fixed position angle window, for either STA or STB.
+    Parameters
+    ----------
+    ssw_event: String identifier of which SWPC event to analyse. Should be ssw_007, ssw_008, ssw_009, or ssw_012.
+    craft: String identifier of which STEREO craft to analyse, should be 'STA' or 'STB'.
+    img: String identifier of whether to retrieve the ssw profiles of normal, or differenced images. Should be
+        'norm', or 'diff'
+    pa_center: Float value of the central position angle to track the CME front along. In degrees.
+    pa_wid: Float value of the width of the position angle slice to track the CME front along. Defaults to 1 degree
+
+    Returns
+    -------
+    profile: A pandas dataframe giving the consensus time-elongation profile of the observed CME front derived from the
+            full distribution of solar stormwatch classifications.
+
     """
     # Open up the SSW data
     project_dirs = H._setup_dirs_()
@@ -563,15 +658,22 @@ def get_ssw_profile(ssw_event, craft, img, pa_center, pa_wid=1.0):
     ssw_out.close()
     return profile
 
+
 def plot_huxt_and_hi_schematic(ssw_event, time):
     """
     Make a contour plot on polar axis of the solar wind solution at a specific time.
 
-    :param time: Time to look up closet model time to (with an astropy.unit of time). 
-    :return fig: Figure handle.
-    :return ax: Axes handle.
+    Parameters
+    ----------
+    ssw_event: String identifier of which SWPC event to analyse.
+    time: Time to look up closet model time to (with an astropy.unit of time).
+
+    Returns
+    -------
+    fig: Figure handle.
+    ax: Axes handle.
     """
-    
+
     # Load in the deterministic HUXt solution, SSW data, and HI images.
     project_dirs = H._setup_dirs_()
     path = os.path.join(project_dirs['HUXt_data'], "HUXt_*{}*_deterministic.hdf5".format(ssw_event))
@@ -597,8 +699,7 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
     id_time_out = np.argmin(np.abs(model.time_out - time))
     time_out = model.time_init + model.time_out[id_time_out]
 
-    times =  model.time_init + model.time_out
-    ert = H.Observer('EARTH', times)
+    times = model.time_init + model.time_out
     sta = H.Observer('STA', times)
     stb = H.Observer('STB', times)
 
@@ -613,8 +714,8 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
     img = 'diff'
     # Open up the SSW data
     ssw_out = tables.open_file(project_dirs['SSW_data'], mode="r")
-    PLOT_HI1A = True
-    PLOT_HI1B = True
+    plot_hi1a_flag = True
+    plot_hi1b_flag = True
     for craft, hi_map in zip(['sta', 'stb'], [hi1a_map, hi1b_map]):
 
         # Pull out event
@@ -641,14 +742,14 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
         except:
             if craft == 'sta':
                 ssw_sta = None
-                PLOT_HI1A = False
+                plot_hi1a_flag = False
             elif craft == 'stb':
                 ssw_stb = None
-                PLOT_HI1B = False
+                plot_hi1b_flag = False
                 
     ssw_out.close()
 
-    fig = plt.figure(figsize=(27,10))
+    fig = plt.figure(figsize=(27, 10))
     
     if (time < model.time_out.min()) | (time > (model.time_out.max())):
         print("Error, input time outside span of model times. Defaulting to closest time")
@@ -677,7 +778,6 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
     ax = plt.subplot(131, polar=True)
     ax2 = plt.subplot(132, polar=False)
     ax3 = plt.subplot(133, polar=False)
-    #fig, ax = plt.subplots(figsize=(30, 10), subplot_kw={"projection": "polar"})
     cnt = ax.contourf(lon, rad, v, levels=levels, cmap=mymap, extend='both')
 
     # Add on CME boundaries
@@ -736,22 +836,22 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
         lf = np.arctan2(yf, xf)
         stb_patch.append([lf.value, rf.value])
         
-    sta_patch = mpl.patches.Polygon(np.array(sta_patch),color='r', alpha=0.3, zorder=1)
+    sta_patch = mpl.patches.Polygon(np.array(sta_patch), color='r', alpha=0.3, zorder=1)
     ax.add_patch(sta_patch)
-    stb_patch = mpl.patches.Polygon(np.array(stb_patch),color='fuchsia', alpha=0.3, zorder=1)
+    stb_patch = mpl.patches.Polygon(np.array(stb_patch), color='fuchsia', alpha=0.3, zorder=1)
     ax.add_patch(stb_patch)
 
     # Add on the flanks.
     id_t = np.argmin(np.abs(model.time_out - time))
-    ax.plot([lsa.value, hxt_sta.loc[id_t,'lon']], [rsa.value, hxt_sta.loc[id_t,'r']], 'r-', linewidth=2)
-    ax.plot(hxt_sta.loc[id_t,'lon'], hxt_sta.loc[id_t,'r'], 'rX', markersize=15, zorder=4)
+    ax.plot([lsa.value, hxt_sta.loc[id_t, 'lon']], [rsa.value, hxt_sta.loc[id_t, 'r']], 'r-', linewidth=2)
+    ax.plot(hxt_sta.loc[id_t, 'lon'], hxt_sta.loc[id_t, 'r'], 'rX', markersize=15, zorder=4)
 
-    ax.plot([lsb.value, hxt_stb.loc[id_t,'lon']], [rsb.value, hxt_stb.loc[id_t,'r']], '-', color='fuchsia', linewidth=2)
-    ax.plot(hxt_stb.loc[id_t,'lon'], hxt_stb.loc[id_t,'r'], 'd', color='fuchsia', markersize=15, zorder=4)
+    ax.plot([lsb.value, hxt_stb.loc[id_t, 'lon']], [rsb.value, hxt_stb.loc[id_t, 'r']], '-', color='fuchsia', linewidth=2)
+    ax.plot(hxt_stb.loc[id_t, 'lon'], hxt_stb.loc[id_t, 'r'], 'd', color='fuchsia', markersize=15, zorder=4)
     ####################################################
 
     # Add on a legend.
-    fig.legend(ncol=5, loc='lower left', bbox_to_anchor=(0.025, 0.0), frameon=False, handletextpad=0.2, columnspacing=1.0)
+    fig.legend(ncol=5, loc='lower left', bbox_to_anchor=(0.025, 0.0), frameon=False, handletextpad=0.2, columnspacing=1)
 
     ax.set_ylim(0, 240)
     ax.set_yticklabels([])
@@ -773,14 +873,15 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
 
     # Add label
     label = (model.time_init + model.time_out[id_t]).strftime("%Y-%m-%dT%H:%M")
-    fig.text(0.25, pos.y0, label , fontsize=16)
+    fig.text(0.25, pos.y0, label, fontsize=16)
     label = "HUXt2D"
     fig.text(0.07, pos.y0, label, fontsize=16)
     
     ###################################################
     normalise = mpl.colors.Normalize(vmin=-0.05, vmax=0.05)
     
-    for a, hi_map, ssw, PLOT_FLAG in zip([ax2, ax3], [hi1a_map, hi1b_map], [ssw_sta, ssw_stb], [PLOT_HI1A, PLOT_HI1B]):
+    for a, hi_map, ssw, plot_flag in zip([ax2, ax3], [hi1a_map, hi1b_map], [ssw_sta, ssw_stb],
+                                         [plot_hi1a_flag, plot_hi1b_flag]):
         
         img = mpl.cm.gray(normalise(hi_map.data), bytes=True)
 
@@ -802,7 +903,7 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
             x, y = hip.convert_hpr_to_pix(el_arr*u.deg, pa_arr*u.deg, hi_map)
             a.plot(x, y, ':', color='lawngreen', linewidth=3)
 
-        if PLOT_FLAG:
+        if plot_flag:
             a.plot(ssw['x'], ssw['y'], '-', color=color, linewidth=3 )
             a.plot(ssw['x_lo'], ssw['y_lo'], '--', color=color, linewidth=3)
             a.plot(ssw['x_hi'], ssw['y_hi'], '--', color=color, linewidth=3)
@@ -814,14 +915,14 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
         a.get_xaxis().set_visible(False)
         a.get_yaxis().set_visible(False)
 
-    box_col='k'
-    txt_x=0.008
-    txt_y=0.96
-    txt_fs=18
+    box_col = 'k'
+    txt_x = 0.008
+    txt_y = 0.96
+    txt_fs = 18
     box = {'facecolor': box_col}
-    label= "HI1A {}".format(hi1a_map.date.strftime("%Y-%m-%dT%H:%M"))
+    label = "HI1A {}".format(hi1a_map.date.strftime("%Y-%m-%dT%H:%M"))
     ax2.text(txt_x, txt_y, label, transform=ax2.transAxes, fontsize=txt_fs, color='w', bbox=box)
-    label= "HI1B {}".format(hi1b_map.date.strftime("%Y-%m-%dT%H:%M"))
+    label = "HI1B {}".format(hi1b_map.date.strftime("%Y-%m-%dT%H:%M"))
     ax3.text(txt_x, txt_y, label, transform=ax3.transAxes, fontsize=txt_fs, color='w', bbox=box)
     
     project_dirs = H._setup_dirs_()
@@ -833,7 +934,17 @@ def plot_huxt_and_hi_schematic(ssw_event, time):
 
 def find_hi_files(ssw_event, craft, time_out):
     """
-    Find the HI1 file for craft at time closest to time_out. Craft is 'sta' or 'stb'. time_out should be astropy.Time.
+    Find the locally stored HI1 data at the time closest to time_out.
+    Parameters
+    ----------
+    ssw_event: String identifier of which SWPC event is being analysed.
+    craft: String identifier of whether to look for STEREO-A or STEREO-B data, should be 'STA' or 'STB'
+    time_out: An astropy.Time object giving the specified output time.
+
+    Returns
+    -------
+    f_current: The path to the closest matching HI1 data file.
+    f_previous: The path to the closest HI1 data file before f_current (for forming differenced images).
     """
     
     project_dirs = H._setup_dirs_()
@@ -865,7 +976,17 @@ def find_hi_files(ssw_event, craft, time_out):
     
     return f_current, f_previous
 
+
 def plot_ensemble_elongation_profiles(ssw_event):
+    """
+    Produce a figure of the time elongation profiles of each ensemble member and the observed SSW profile.
+    Parameters
+    ----------
+    ssw_event: String identifier of which SWPC event to analyse. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+    Returns
+    -------
+    A figure file in figures directory with name format figure_2_time_elon_profiles_ssw_event.png
+    """
     
     # List the ensemle files, and set up space for results of comparisons
     project_dirs = H._setup_dirs_()
@@ -891,7 +1012,6 @@ def plot_ensemble_elongation_profiles(ssw_event):
     project_dirs = H._setup_dirs_()    
     metrics = pd.read_csv(os.path.join(project_dirs['out_data'], ssw_event + "_ensemble_metrics.csv"))
     metrics['arrival_time'] = pd.to_datetime(metrics['arrival_time'])
-    n_ens_all = metrics.shape[0]
 
     # Remove misses and reindex
     id_hit = np.argwhere(metrics['hit'] == 1)
@@ -900,9 +1020,9 @@ def plot_ensemble_elongation_profiles(ssw_event):
     # Set up the figure
     w = 10
     h = w / 2.0
-    fig, ax = plt.subplots(1,2, figsize=(w,h))
+    fig, ax = plt.subplots(1, 2, figsize=(w, h))
     
-    el_keys=[]
+    el_keys = []
     for col in ensemble_sta:
         if col[0:2] == 'el':
             el_keys.append(col)
@@ -928,12 +1048,13 @@ def plot_ensemble_elongation_profiles(ssw_event):
     tb = hxtb_det['time'] - model.time_init.jd
     ax[1].plot(tb, hxtb_det['el'], '-', color='k', zorder=1, label='HUXt Deterministic')
 
-
     t = ssw_sta['time'] - model.time_init.jd
-    ax[0].errorbar(t, ssw_sta['el'], yerr=[ssw_sta['el_dlo'], ssw_sta['el_dhi']], fmt='.', color='mediumblue',zorder=2, label='HI1A SSW')
+    ax[0].errorbar(t, ssw_sta['el'], yerr=[ssw_sta['el_dlo'], ssw_sta['el_dhi']], fmt='.', color='mediumblue',
+                   zorder=2, label='HI1A SSW')
 
     t = ssw_stb['time'] - model.time_init.jd
-    ax[1].errorbar(t, ssw_stb['el'], yerr=[ssw_stb['el_dlo'], ssw_stb['el_dhi']], fmt='.', color='darkviolet',zorder=2, label='HI1B SSW')
+    ax[1].errorbar(t, ssw_stb['el'], yerr=[ssw_stb['el_dlo'], ssw_stb['el_dhi']], fmt='.', color='darkviolet',
+                   zorder=2, label='HI1B SSW')
 
     for a in ax:
         a.set_xlim(0, 1.9)
@@ -953,21 +1074,33 @@ def plot_ensemble_elongation_profiles(ssw_event):
     plt.close(fig)
     return
 
+
 def load_metrics(ssw_event):
+    """
+    Function to load in the ensemble metrics (rmse, weight, arrival time etc), as well as compute the arrival and
+    transit time of the deterministic huxt run and the SWPC cme data.
+    Parameters
+    ----------
+    ssw_event: String identifier of which SWPC event to analyse. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+    Returns
+    -------
+    metrics: pandas dataframe with the ensemble metrics in.
+    t_arrive_det: Astropy Time object of the ConeCME arrival at Earth for the deterministic HUXt run.
+    t_transit_det: Transit time of the ConeCME for the deterministic run.
+    swpc_cme: Dictionary of the SWPC CME properties
+    """
     
     swpc_cme = load_swpc_cme_forecasts(ssw_event)
     
     project_dirs = H._setup_dirs_()    
     metrics = pd.read_csv(os.path.join(project_dirs['out_data'], ssw_event + "_ensemble_metrics.csv"))
     metrics['arrival_time'] = pd.to_datetime(metrics['arrival_time'])
-    n_ens_all = metrics.shape[0]
 
     # Remove misses and reindex
     id_hit = metrics['hit'] == 1
-    metrics = metrics.loc[id_hit,:]
-    metrics.set_index(np.arange(0,metrics.shape[0]), inplace=True)
-    n_ens_hit = metrics.shape[0]
-    
+    metrics = metrics.loc[id_hit, :]
+    metrics.set_index(np.arange(0, metrics.shape[0]), inplace=True)
+
     # Renormalise weights
     metrics['w_a'] = metrics['w_a'] / metrics['w_a'].sum()
     metrics['w_b'] = metrics['w_b'] / metrics['w_b'].sum()
@@ -984,15 +1117,26 @@ def load_metrics(ssw_event):
     
     return metrics, t_arrive_det, t_transit_det, swpc_cme
 
+
 def compute_ensemble_stats(ssw_event):
-    
+    """
+    Compute statistics regarding the performance of the ensemble hindcasts, such as arrival time error and
+    hindcast uncertaitny.
+    Parameters
+    ----------
+    ssw_event: String identifier of the SWPC event being analysed. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+    Returns
+    -------
+    ms: The pandas dataframe of ensemble metrics sorted by arrival time.
+    stats: A dictionary of values including the hindcast uncertinaty, error, and skill for the weighted and unweighted
+           unsemble hindcasts.
+    """
     metrics, t_arrive_det, t_transit_det, swpc_cme = load_metrics(ssw_event)
     
-    # Compute median, and IQR of ens avg, and weighted avergages.
-    
+    # Compute median, and IQR of ens avg, and weighted averages.
     # Sort by ensemble weight, then compute cumulative sum of weights.
     ms = metrics.sort_values(by='arrival_time', ascending=True)
-    ms.set_index(np.arange(0,ms.shape[0]), inplace=True)
+    ms.set_index(np.arange(0, ms.shape[0]), inplace=True)
     ms['cwa'] = ms['w_a'].cumsum()
     ms['cwb'] = ms['w_b'].cumsum()
     ms['cwavg'] = ms['w_avg'].cumsum()
@@ -1000,15 +1144,15 @@ def compute_ensemble_stats(ssw_event):
     arrival_error = np.abs(ms['arrival_time'] - pd.Timestamp(swpc_cme['t_arr_obs'].datetime))
     ms['error'] = arrival_error.dt.total_seconds() / 3600.0
 
-    stats = {'obs':{'arrival':0, 'error':np.NaN, 'skill':np.NaN},
-            'swpc':{'arrival':0, 'error':0, 'skill':np.NaN},
-            'det':{'arrival':0, 'error':0, 'skill':np.NaN},
-            'ens':{'arrival':0, 'lo':0, 'hi':0, 'error':0, 'skill':0},
-            'cwa':{'arrival':0, 'lo':0, 'hi':0, 'error':0, 'skill':0},
-            'cwb':{'arrival':0, 'lo':0, 'hi':0, 'error':0, 'skill':0},
-            'cwavg':{'arrival':0, 'lo':0, 'hi':0, 'error':0, 'skill':0}}
+    stats = {'obs': {'arrival': 0, 'error': np.NaN, 'skill': np.NaN},
+             'swpc': {'arrival': 0, 'error': 0, 'skill': np.NaN},
+             'det': {'arrival': 0, 'error': 0, 'skill': np.NaN},
+             'ens': {'arrival': 0, 'lo': 0, 'hi': 0, 'error': 0, 'skill': 0},
+             'cwa': {'arrival': 0, 'lo': 0, 'hi': 0, 'error': 0, 'skill': 0},
+             'cwb': {'arrival': 0, 'lo': 0, 'hi': 0, 'error': 0, 'skill': 0},
+             'cwavg': {'arrival': 0, 'lo': 0, 'hi': 0, 'error': 0, 'skill': 0}}
 
-    # Quantile thresholds used to compute the ensemble spread.
+    # Quantile thresholds used to compute the ensemble spread - approxiamtes the 1-sigma error.
     q_lo = 0.16
     q_hi = 0.84
 
@@ -1041,8 +1185,16 @@ def compute_ensemble_stats(ssw_event):
             
     return ms, stats
 
-def print_stats_table(ssw_event):
 
+def print_stats_table(ssw_event):
+    """
+    Print to screen a latex formatted table of the ensemble hindscast performance statistics.
+    Parameters
+    ----------
+    ssw_event: String identifier of the SWPC event being analysed. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+    Returns
+    -------
+    """
     ms, stats = compute_ensemble_stats(ssw_event)
     fmt = "%Y-%m-%dT%H:%M"
     for key, val in stats.items():
@@ -1057,14 +1209,23 @@ def print_stats_table(ssw_event):
         else:
             print(key + " & {} & & {:3.1f}\\\\".format(val['arrival'].strftime(fmt), val['error']))
 
+
 def ensemble_histogram(ssw_event):
-    
+    """
+    Produce a histogram of the ConeCME arrival times for the weighted and unweighted ensembles.
+    Parameters
+    ----------
+    ssw_event: String identifier of the SWPC event being analysed. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+    Returns
+    -------
+    A figure in the figures directory with name format: figure_3_arrival_distribution_{ssw_event}.png
+    """
     metrics, t_arrive_det, t_transit_det, swpc_cme = load_metrics(ssw_event)
     ms, stats = compute_ensemble_stats(ssw_event)
     
     w = 20
     h = w / 3.0
-    fig, ax = plt.subplots(1, 3, figsize=(w,h))
+    fig, ax = plt.subplots(1, 3, figsize=(w, h))
 
     t_lo = metrics['arrival_time'].min() - pd.Timedelta("2H")
     t_hi = metrics['arrival_time'].max() + pd.Timedelta("2H")
@@ -1073,9 +1234,9 @@ def ensemble_histogram(ssw_event):
     t_arr_swpc = swpc_cme['t_arr_pred'].datetime
     t_arr_obs = swpc_cme['t_arr_obs'].datetime
 
-    hist_colors = {'w_a':'deepskyblue', 'w_b':'violet', 'w_avg':'sandybrown'}
-    line_colors = {'w_a':'mediumblue', 'w_b':'darkviolet', 'w_avg':'orangered'}
-    labels = {'w_a':'HI1A', 'w_b':'HI1B', 'w_avg':'HI1A+B'}
+    hist_colors = {'w_a': 'deepskyblue', 'w_b': 'violet', 'w_avg': 'sandybrown'}
+    line_colors = {'w_a': 'mediumblue', 'w_b': 'darkviolet', 'w_avg': 'orangered'}
+    labels = {'w_a': 'HI1A', 'w_b': 'HI1B', 'w_avg': 'HI1A+B'}
     for a, key, color in zip(ax, ['w_a', 'w_b', 'w_avg'], ['blue', 'green', 'orange']):
         a.hist(metrics['arrival_time'], bins, density=True, color='lightgrey', label='Ens. distribution')
 
@@ -1095,7 +1256,8 @@ def ensemble_histogram(ssw_event):
 
         dxl = stats[key2]['arrival'] - stats[key2]['lo']
         dxu = stats[key2]['hi'] - stats[key2]['arrival']
-        a.errorbar(stats[key2]['arrival'], 1.0, xerr=[[dxl], [dxu]], fmt='o', color=line_colors[key], label='Weighted ens. median')
+        a.errorbar(stats[key2]['arrival'], 1.0, xerr=[[dxl], [dxu]], fmt='o', color=line_colors[key],
+                   label='Weighted ens. median')
 
         a.vlines(t_arrive_det.datetime, 0, 3.5, colors='darkgreen', linewidths=2, linestyles=':', label='Deterministic')
 
@@ -1117,11 +1279,12 @@ def ensemble_histogram(ssw_event):
         a.set_yticklabels([])
 
     for a in ax:
-        a.legend(loc='upper right', ncol=1, handletextpad=0.5, handlelength=1, columnspacing=0.5, fontsize=14, framealpha=1.0)
+        a.legend(loc='upper right', ncol=1, handletextpad=0.5, handlelength=1, columnspacing=0.5, fontsize=14,
+                 framealpha=1.0)
 
     ax[0].set_ylabel('Ensemble density')
 
-    fig.subplots_adjust(left=0.04,bottom=0.09,right=0.99,top=0.98,wspace=0.02)
+    fig.subplots_adjust(left=0.04, bottom=0.09, right=0.99, top=0.98, wspace=0.02)
     project_dirs = H._setup_dirs_()
     fig_name = 'figure_3_arrival_distribution_{}.png'.format(ssw_event)
     fig_path = os.path.join(project_dirs['HUXt_figures'], fig_name)
@@ -1129,21 +1292,28 @@ def ensemble_histogram(ssw_event):
     plt.close(fig)
     return
 
-def scatter_weight_error(ssw_event):
 
+def scatter_weight_error(ssw_event):
+    """
+    Produce a scatter plot of ensemble member weight versus arrival time error.
+    Parameters
+    ----------
+    ssw_event: String identifier of the SWPC event being analysed. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+    Returns
+    -------
+    A figure in the figures directory with name format: figure_4_error_vs_weight_{ssw_event}.png
+    """
     ms, stats = compute_ensemble_stats(ssw_event)
     # How to add not about ensemles that don't hit?
     # Need to print stats about how many hit and miss in each event?
+    fig, ax = plt.subplots(1, 3, figsize=(15, 5))
 
-    fig, ax = plt.subplots(1,3, figsize=(15,5))
-
-    ax[0].plot(ms['w_a'], np.abs(ms['error']) ,'o', color='mediumblue', label='H1A weighted')
-    ax[1].plot(ms['w_b'], np.abs(ms['error']) ,'o', color='darkviolet', label='H1B weighted')
-    ax[2].plot(ms['w_avg'], np.abs(ms['error']) ,'o', color='orangered', label='H1A+B weighted')
+    ax[0].plot(ms['w_a'], np.abs(ms['error']), 'o', color='mediumblue', label='H1A weighted')
+    ax[1].plot(ms['w_b'], np.abs(ms['error']), 'o', color='darkviolet', label='H1B weighted')
+    ax[2].plot(ms['w_avg'], np.abs(ms['error']), 'o', color='orangered', label='H1A+B weighted')
 
     ax[0].set_ylabel('Absolute arrival time error (hours)')
-    
-    
+
     whi = np.array([ms[key].max() for key in ['w_a', 'w_b', 'w_avg']])
     ehi = np.max(np.abs(ms['error'])) + 2
     for a in ax:
@@ -1155,19 +1325,25 @@ def scatter_weight_error(ssw_event):
     for a in ax[1:]:
         a.set_yticklabels([])
 
-    fig.subplots_adjust(left=0.05,bottom=0.12,right=0.99,top=0.99,wspace=0.05)
+    fig.subplots_adjust(left=0.05, bottom=0.12, right=0.99, top=0.99, wspace=0.05)
     project_dirs = H._setup_dirs_()
     fig_name = 'figure_4_error_vs_weight_{}.png'.format(ssw_event)
     fig_path = os.path.join(project_dirs['HUXt_figures'], fig_name)
     fig.savefig(fig_path)
     plt.close(fig)
     return
-    
+
+
 def animate_schematic(ssw_event):
     """
     Animate the model solution, and save as an MP4.
-    :param field: String, either 'cme', or 'ambient', specifying which solution to animate.
-    :param tag: String to append to the filename of the animation.
+    Parameters
+    ----------
+    ssw_event: String identifier of the SWPC event being analysed. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+
+    Returns
+    -------
+    An MP4 in the figures directory with name HUXt_CR{cr_num}_{ssw_event}_movie.mp4
     """
     # Set the duration of the movie
     # Scaled so a 5 day simulation with dt_scale=4 is a 10 second movie.
@@ -1195,12 +1371,10 @@ def animate_schematic(ssw_event):
     del ssw_sta_hxt
     del ssw_stb_hxt
     
-    times =  model.time_init + model.time_out
-    ert = H.Observer('EARTH', times)
+    times = model.time_init + model.time_out
     sta = H.Observer('STA', times)
     stb = H.Observer('STB', times)
 
-    
     nt_end = np.sum(model.time_out <= sim_duration)
     
     def make_frame(t):
@@ -1210,7 +1384,8 @@ def animate_schematic(ssw_event):
         """
         # Get the time index closest to this fraction of movie duration
         i = np.int32((nt_end - 1) * t / movie_duration)
-        fig, ax = animation_frame(ssw_event, model.time_out[i], model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hxt_pa, ert, sta, stb)
+        t_out = model.time_out[i]
+        fig, ax = animation_frame(ssw_event, t_out, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hxt_pa, sta, stb)
         frame = mplfig_to_npimage(fig)
         plt.close('all')
         return frame
@@ -1223,23 +1398,32 @@ def animate_schematic(ssw_event):
     return
 
 
-def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hxt_pa, ert, sta, stb):
+def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hxt_pa, sta, stb):
     """
     Make a contour plot on polar axis of the solar wind solution at a specific time.
-
-    :param time: Time to look up closet model time to (with an astropy.unit of time). 
-    :return fig: Figure handle.
-    :return ax: Axes handle.
+    Parameters
+    ----------
+    ssw_event: String identifier of the SWPC event being analysed. Should be ssw_007, ssw_008, ssw_009, ssw_012.
+    time: Time to look up closet model time to (with an astropy.unit of time).
+    model: An instance of the HUXt class with a model solution.
+    hxt_sta: Pandas dataframe of the ConeCME flank profile from HUXt for STEREO-A.
+    hxt_stb: Pandas dataframe of the ConeCME flank profile from HUXt for STEREO-B.
+    sta_hxt_pa: Float value of the position angle of the ConeCME in the STEREO-A field of view.
+    stb_hxt_pa: Float value of the position angle of the ConeCME in the STEREO-B field of view.
+    sta: A HUXt.Observer object for STEREO-A for this event.
+    stb: A HUXt.Observer object for STEREO-B for this event.
+    Returns
+    -------
+    fig: Figure handle.
+    ax: List of the three Axes handles.
     """
-    
+
     # Load in the deterministic HUXt solution, SSW data, and HI images.
     project_dirs = H._setup_dirs_()
         
     id_time_out = np.argmin(np.abs(model.time_out - time))
     time_out = model.time_init + model.time_out[id_time_out]
 
-    times =  model.time_init + model.time_out
-    
     # Load in the HI images
     hi1a_fc, hi1a_fp = find_hi_files(ssw_event, 'sta', time_out)
     hi1a_map = hip.get_image_diff(hi1a_fc, hi1a_fp, align=True, smoothing=True)
@@ -1295,7 +1479,7 @@ def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hx
                 
     ssw_out.close()
 
-    fig = plt.figure(figsize=(27,10))
+    fig = plt.figure(figsize=(27, 10))
     
     if (time < model.time_out.min()) | (time > (model.time_out.max())):
         print("Error, input time outside span of model times. Defaulting to closest time")
@@ -1324,7 +1508,6 @@ def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hx
     ax = plt.subplot(131, polar=True)
     ax2 = plt.subplot(132, polar=False)
     ax3 = plt.subplot(133, polar=False)
-    #fig, ax = plt.subplots(figsize=(30, 10), subplot_kw={"projection": "polar"})
     cnt = ax.contourf(lon, rad, v, levels=levels, cmap=mymap, extend='both')
 
     # Add on CME boundaries
@@ -1383,18 +1566,18 @@ def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hx
         lf = np.arctan2(yf, xf)
         stb_patch.append([lf.value, rf.value])
         
-    sta_patch = mpl.patches.Polygon(np.array(sta_patch),color='r', alpha=0.3, zorder=1)
+    sta_patch = mpl.patches.Polygon(np.array(sta_patch), color='r', alpha=0.3, zorder=1)
     ax.add_patch(sta_patch)
-    stb_patch = mpl.patches.Polygon(np.array(stb_patch),color='fuchsia', alpha=0.3, zorder=1)
+    stb_patch = mpl.patches.Polygon(np.array(stb_patch), color='fuchsia', alpha=0.3, zorder=1)
     ax.add_patch(stb_patch)
 
     # Add on the flanks.
     id_t = np.argmin(np.abs(model.time_out - time))
-    ax.plot([lsa.value, hxt_sta.loc[id_t,'lon']], [rsa.value, hxt_sta.loc[id_t,'r']], 'r-', linewidth=2)
+    ax.plot([lsa.value, hxt_sta.loc[id_t, 'lon']], [rsa.value, hxt_sta.loc[id_t, 'r']], 'r-', linewidth=2)
     ax.plot(hxt_sta.loc[id_t,'lon'], hxt_sta.loc[id_t,'r'], 'rX', markersize=15, zorder=4)
 
-    ax.plot([lsb.value, hxt_stb.loc[id_t,'lon']], [rsb.value, hxt_stb.loc[id_t,'r']], '-', color='fuchsia', linewidth=2)
-    ax.plot(hxt_stb.loc[id_t,'lon'], hxt_stb.loc[id_t,'r'], 'd', color='fuchsia', markersize=15, zorder=4)
+    ax.plot([lsb.value, hxt_stb.loc[id_t, 'lon']], [rsb.value, hxt_stb.loc[id_t, 'r']], '-', color='fuchsia', linewidth=2)
+    ax.plot(hxt_stb.loc[id_t, 'lon'], hxt_stb.loc[id_t, 'r'], 'd', color='fuchsia', markersize=15, zorder=4)
     ####################################################
 
     # Add on a legend.
@@ -1420,7 +1603,7 @@ def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hx
 
     # Add label
     label = (model.time_init + model.time_out[id_t]).strftime("%Y-%m-%dT%H:%M")
-    fig.text(0.25, pos.y0, label , fontsize=16)
+    fig.text(0.25, pos.y0, label, fontsize=16)
     label = "HUXt2D"
     fig.text(0.07, pos.y0, label, fontsize=16)
     
@@ -1443,7 +1626,7 @@ def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hx
 
         a.imshow(img, origin='lower')
         
-        el_arr = np.arange(0,25,1)
+        el_arr = np.arange(0, 25, 1)
         for dpa in [-2.0, 2.0]:
             pa_arr = np.zeros(el_arr.shape) + pa + dpa
             x, y = hip.convert_hpr_to_pix(el_arr*u.deg, pa_arr*u.deg, hi_map)
@@ -1462,26 +1645,26 @@ def animation_frame(ssw_event, time, model, hxt_sta, hxt_stb, sta_hxt_pa, stb_hx
         a.get_xaxis().set_visible(False)
         a.get_yaxis().set_visible(False)
 
-    box_col='k'
-    txt_x=0.008
-    txt_y=0.96
-    txt_fs=18
+    box_col = 'k'
+    txt_x = 0.008
+    txt_y = 0.96
+    txt_fs = 18
     box = {'facecolor': box_col}
-    label= "HI1A {}".format(hi1a_map.date.strftime("%Y-%m-%dT%H:%M"))
+    label = "HI1A {}".format(hi1a_map.date.strftime("%Y-%m-%dT%H:%M"))
     ax2.text(txt_x, txt_y, label, transform=ax2.transAxes, fontsize=txt_fs, color='w', bbox=box)
-    label= "HI1B {}".format(hi1b_map.date.strftime("%Y-%m-%dT%H:%M"))
+    label = "HI1B {}".format(hi1b_map.date.strftime("%Y-%m-%dT%H:%M"))
     ax3.text(txt_x, txt_y, label, transform=ax3.transAxes, fontsize=txt_fs, color='w', bbox=box)
     return fig, [ax, ax2, ax3]
 
+
 def print_table_1():
     """
-    Print out a table detailing each of hte SWPC forecast CME paramters and observations. Table 1 in the paper.
+    Print out a latex formatted table of each of hte SWPC forecast CME paramters and observations. Table 1 in the paper.
     """
-    
     fmt = '%Y-%m-%dT%H:%M'
     cme_list = []
     for i, ssw_event in enumerate(['ssw_007', 'ssw_008', 'ssw_009', 'ssw_012']):
-        cme = heh.load_swpc_cme_forecasts(ssw_event)
+        cme = load_swpc_cme_forecasts(ssw_event)
         cme_list.append(cme)
 
     cme1 = cme_list[0]
@@ -1490,46 +1673,50 @@ def print_table_1():
     cme4 = cme_list[3]
 
     keys = ['event', 't_obs', 'lon', 'lat', 'width', 'v', 't_arr_pred', 't_arr_obs']
-    label = {'t_obs': 'Time at 21.5~$R_{s}$', 'lon': 'Longitude (deg)','lat': 'Latitude (deg)','width':'Width (deg)',
-             'v': 'Speed ($km~s^{-1}$)','t_arr_pred': 'Predicted arrival','t_arr_obs': 'Observed arrival', }
+    label = {'t_obs': 'Time at 21.5~$R_{s}$', 'lon': 'Longitude (deg)', 'lat': 'Latitude (deg)', 'width':'Width (deg)',
+             'v': 'Speed ($km~s^{-1}$)', 't_arr_pred': 'Predicted arrival', 't_arr_obs': 'Observed arrival', }
     for i, key in enumerate(keys):
 
         if key == 'event':
             line = "Event & CME 1 & CME 2 & CME 3 & CME 4 \\\\"
         elif key in ['t_obs', 't_arr_pred', 't_arr_obs']:
-             line = "{} & {} & {} & {} & {} \\\\".format(label[key], cme1[key].strftime(fmt), cme2[key].strftime(fmt), cme3[key].strftime(fmt),                                                                  cme4[key].strftime(fmt))
+            fmt = "{} & {} & {} & {} & {} \\\\"
+            line = fmt.format(label[key], cme1[key].strftime(fmt), cme2[key].strftime(fmt), cme3[key].strftime(fmt),
+                              cme4[key].strftime(fmt))
         else:
-             line = "{} & {:3.0f} & {:3.0f} & {:3.0f} & {:3.0f} \\\\".format(label[key], cme1[key].value, cme2[key].value, cme3[key].value,                                                                                          cme4[key].value)
+            fmt = "{} & {:3.0f} & {:3.0f} & {:3.0f} & {:3.0f} \\\\"
+            line = fmt.format(label[key], cme1[key].value, cme2[key].value, cme3[key].value, cme4[key].value)
         print(line)
         
         
 def all_weight_vs_error_plots():
     """
-    Function to produce a figure of all of the ensemble weight versus arrival error for all of the ssw events. Figure 6 in the paper.
+    Function to produce a figure of all of the ensemble weight versus arrival error for all of the ssw events.
+    Figure 6 in the paper.
     """
-    fig, ax = plt.subplots(4,3, figsize=(15,20))
+    fig, ax = plt.subplots(4, 3, figsize=(15, 20))
 
     w_lims = []
     e_lims = []
     for i, ssw_event in enumerate(['ssw_007', 'ssw_008', 'ssw_009', 'ssw_012']):
 
-        ms, stats = heh.compute_ensemble_stats(ssw_event)
+        ms, stats = compute_ensemble_stats(ssw_event)
 
-        ax_sub = ax[i,:]
-        ax_sub[0].plot(ms['w_a'], np.abs(ms['error']) ,'o', color='mediumblue', label='H1A weighted')
-        ax_sub[1].plot(ms['w_b'], np.abs(ms['error']) ,'o', color='darkviolet', label='H1B weighted')
-        ax_sub[2].plot(ms['w_avg'], np.abs(ms['error']) ,'o', color='orangered', label='H1A+B weighted')
+        ax_sub = ax[i, :]
+        ax_sub[0].plot(ms['w_a'], np.abs(ms['error']), 'o', color='mediumblue', label='H1A weighted')
+        ax_sub[1].plot(ms['w_b'], np.abs(ms['error']), 'o', color='darkviolet', label='H1B weighted')
+        ax_sub[2].plot(ms['w_avg'], np.abs(ms['error']), 'o', color='orangered', label='H1A+B weighted')
 
         w_hi = np.array([ms[key].max() for key in ['w_a', 'w_b', 'w_avg']])
         w_lims.append(w_hi.max())
         e_lims.append(np.max(np.abs(ms['error'])))
 
         n_hit = np.int32(np.sum(ms['hit']))
-        txt_x=0.8
-        txt_y=0.825
-        txt_fs=18
-        cme_label= "CME-{:01d}".format(i+1)
-        hit_label= "N={}".format(n_hit)
+        txt_x = 0.8
+        txt_y = 0.825
+        txt_fs = 18
+        cme_label = "CME-{:01d}".format(i+1)
+        hit_label = "N={}".format(n_hit)
         for a in ax_sub:
             a.text(txt_x, txt_y, cme_label, transform=a.transAxes, fontsize=txt_fs)
             a.text(txt_x, txt_y-0.075, hit_label, transform=a.transAxes, fontsize=txt_fs)
@@ -1539,16 +1726,16 @@ def all_weight_vs_error_plots():
         a.set_ylim(0, 46)
         a.legend(loc='upper right', handletextpad=0.5, handlelength=1, columnspacing=0.5, fontsize=14, framealpha=1.0)
 
-    for a in ax[-1,:]:
+    for a in ax[-1, :]:
         a.set_xlabel('Ensemble member weight')
 
-    for a in ax[:,0]:    
+    for a in ax[:, 0]:
         a.set_ylabel('Absolute arrival time error (hours)')
 
-    for a in ax[:,1:].ravel():
+    for a in ax[:, 1:].ravel():
         a.set_yticklabels([])
 
-    for a in ax[0:3,:].ravel():
+    for a in ax[0:3, :].ravel():
         a.set_xticklabels([])
 
     fig.subplots_adjust(left=0.05, bottom=0.03, right=0.99, top=0.99, wspace=0.025, hspace=0.025)
@@ -1556,28 +1743,30 @@ def all_weight_vs_error_plots():
     fig_name = 'figure_3_all.png'
     fig_path = os.path.join(project_dirs['HUXt_figures'], fig_name)
     fig.savefig(fig_path)
-    
+
+
 def all_time_elongation_plots():
     """
-    Function to produce a figure of all of the time elongation profiles for all of the ssw events. Figure 5 in the paper.
+    Function to produce a figure of all of the time elongation profiles for all of the ssw events.
+    Figure 5 in the paper.
     """
     # Set up the figure
     w = 10
     h = 3*(w / 2.0)
-    fig, ax_all = plt.subplots(4,2, figsize=(w,h))
+    fig, ax_all = plt.subplots(4, 2, figsize=(w, h))
 
     for kk, ssw_event in enumerate(['ssw_007', 'ssw_008', 'ssw_009', 'ssw_012']):
 
         ax = ax_all[kk, :]
 
-        # List the ensemle files, and set up space for results of comparisons
+        # List the ensemble files, and set up space for results of comparisons
         project_dirs = H._setup_dirs_()
         path = os.path.join(project_dirs['HUXt_data'], "HUXt_*{}*_deterministic.hdf5".format(ssw_event))
         deterministic_run = glob.glob(path)[0]
         model, cme_list = H.load_HUXt_run(deterministic_run)
         cme = cme_list[0]
 
-        hxta_det, hxtb_det = heh.huxt_t_e_profile_fast(cme)
+        hxta_det, hxtb_det = huxt_t_e_profile_fast(cme)
 
         # Load in the HUXt ensemble flanks
         sta_flanks = ssw_event + '_ensemble_sta.csv'
@@ -1603,7 +1792,7 @@ def all_time_elongation_plots():
         n_hit = len(id_hit)
         n_miss = len(id_miss)
 
-        el_keys=[]
+        el_keys = []
         for col in ensemble_sta:
             if col[0:2] == 'el':
                 el_keys.append(col)
@@ -1637,20 +1826,21 @@ def all_time_elongation_plots():
         tb = hxtb_det['time'] - model.time_init.jd
         ax[1].plot(tb, hxtb_det['el'], '-', color='k', zorder=1, label='HUXt Deterministic')
 
-
         t = ssw_sta['time'] - model.time_init.jd
-        ax[0].errorbar(t, ssw_sta['el'], yerr=[ssw_sta['el_dlo'], ssw_sta['el_dhi']], fmt='.', color='mediumblue',zorder=2, label='HI1A SSW')
+        ax[0].errorbar(t, ssw_sta['el'], yerr=[ssw_sta['el_dlo'], ssw_sta['el_dhi']], fmt='.', color='mediumblue',
+                       zorder=2, label='HI1A SSW')
 
         t = ssw_stb['time'] - model.time_init.jd
-        ax[1].errorbar(t, ssw_stb['el'], yerr=[ssw_stb['el_dlo'], ssw_stb['el_dhi']], fmt='.', color='darkviolet',zorder=2, label='HI1B SSW')
+        ax[1].errorbar(t, ssw_stb['el'], yerr=[ssw_stb['el_dlo'], ssw_stb['el_dhi']], fmt='.', color='darkviolet',
+                       zorder=2, label='HI1B SSW')
 
-        txt_x=0.01
-        txt_y=0.93
-        txt_fs=18
-        cme_label= "CME-{:01d}".format(kk+1)
+        txt_x = 0.01
+        txt_y = 0.93
+        txt_fs = 18
+        cme_label = "CME-{:01d}".format(kk+1)
         hit_label = "Hits: {}".format(n_hit)
         miss_label = "Misses: {}".format(n_miss)
-        dy=0.07
+        dy = 0.07
         for a in ax:
             a.text(txt_x, txt_y, cme_label, transform=a.transAxes, fontsize=txt_fs)
             a.text(txt_x, txt_y-dy, hit_label, transform=a.transAxes, fontsize=txt_fs)
@@ -1661,16 +1851,16 @@ def all_time_elongation_plots():
         a.set_ylim(4, 25)
         a.legend(loc='lower right', handletextpad=0.5, handlelength=1, columnspacing=0.5, fontsize=14, framealpha=1.0)
 
-    for a in ax_all[-1,:]:
+    for a in ax_all[-1, :]:
         a.set_xlabel('Time after CME onset (days)')
 
-    for a in ax_all[:,0]:    
+    for a in ax_all[:, 0]:
         a.set_ylabel('Elongation (degrees)')
 
-    for a in ax_all[:,1 ]:
+    for a in ax_all[:, 1]:
         a.set_yticklabels([])
 
-    for a in ax_all[0:3,:].ravel():
+    for a in ax_all[0:3, :].ravel():
         a.set_xticklabels([])
 
     fig.subplots_adjust(left=0.1, bottom=0.05, right=0.99, top=0.99, wspace=0.025, hspace=0.025)
@@ -1679,17 +1869,18 @@ def all_time_elongation_plots():
     fig_path = os.path.join(project_dirs['HUXt_figures'], fig_name)
     fig.savefig(fig_path)
 
+
 def print_summary_statistics():
     """
-    Print out the percentage change in the hindcast arrival error and uncertainty for the combined HI1A and HI1B weighted ensemble
-    relative to the unweighted ensemble
+    Print out the percentage change in the hindcast arrival error and uncertainty for the combined HI1A and HI1B
+    weighted ensemble relative to the unweighted ensemble
     """
     event_list = ['ssw_007', 'ssw_008', 'ssw_009', 'ssw_012']
     all_range = []
     all_error = []
     for event in event_list:
 
-        ms, stats = heh.compute_ensemble_stats(event)
+        ms, stats = compute_ensemble_stats(event)
         for key, val in stats.items():
 
             if key in ['ens', 'cwa', 'cwb', 'cwavg']:
@@ -1711,11 +1902,10 @@ def print_summary_statistics():
 
     all_error = np.array(all_error)
     avg_error = np.mean(all_error)
-    avg_error = np.mean(all_error)
     sigma = np.std(all_error)
     serr_error = sigma / np.sqrt(all_error.size)
 
     print('*****')
     print("Mean change in uncertainty: {:3.1f} +/- {:3.1f}".format(avg_range, 2*serr_range))
     print("Mean change in error: {:3.1f} +/- {:3.1f}".format(avg_error, 2*serr_error))
-
+    return

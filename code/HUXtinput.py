@@ -13,10 +13,6 @@ import numpy as np
 import astropy.units as u
 
 
-# <codecell> Get MAS data from MHDweb
-
-
-
 def getMASboundaryconditions(cr=np.NaN, observatory='', runtype='', runnumber=''):
     """
     A function to grab the  Vr and Br boundary conditions from MHDweb. An order
