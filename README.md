@@ -1,7 +1,7 @@
 # HIEnsembleHindcast - Ensemble CME modelling constrained by heliospheric imager observations.
 
 ## Introduction
-This repository provides the analysis code and data used to investigate how Heliospheric Imager data can be used to constrain an ensemble hindcasts of CMEs using the HUXt model. This study is accepted for publication in AGU Advances. 
+This repository provides the analysis code and data used to investigate how Heliospheric Imager data can be used to constrain ensemble hindcasts of CMEs using the HUXt model. This study is accepted for publication in AGU Advances. 
 
 ## Installation
 This project is written in Python 3.7.3, and the specific dependencies are listed in the ``requirements.txt`` and ``environment.yml`` files. Currently ``moviepy v1.0.1`` is not available on ``conda``, but can be downloaded from ``pip``. Additionally, to make animations, ``moviepy`` requires ``ffmpeg`` to be installed. This project also requires our [``stereo_spice``](https://github.com/LukeBarnard/stereo_spice) package, which is not currently available through ``conda`` or ``pip``. 
