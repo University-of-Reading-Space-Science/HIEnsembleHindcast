@@ -7,7 +7,7 @@ jupyterlab==2.0.1
 matplotlib==3.2.1
 moviepy==1.0.1
 numba==0.48.0
-numpy==1.18.1
+numpy==1.22.0
 pandas==0.25.1
 pip==20.0.2
 pyhdf==0.10.2
